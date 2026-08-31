@@ -7,5 +7,4 @@ cache/
 __pycache__/
 *.pyc
 
-# Local outputs (optional to keep clean)
-output/
+

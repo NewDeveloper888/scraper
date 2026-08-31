@@ -1,0 +1,11 @@
+{
+  "start_time": "2026-08-31T12:26:54.069882+00:00",
+  "duration_seconds": 2.34,
+  "catalogue_pages_crawled": 3,
+  "detail_pages_total": 61,
+  "cache_hits": 63,
+  "network_fetches": 1,
+  "valid_records": 60,
+  "invalid_records": 1,
+  "failed_pages": 1
+}
