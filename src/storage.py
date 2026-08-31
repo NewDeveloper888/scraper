@@ -17,3 +17,12 @@ def save_json_records(filename: str, records: list[BaseModel | dict]) -> None:
         json.dumps(serializable, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"[STORED] {len(records)} records written to {file_path}")
+
+
+def save_run_report(report_data: dict) -> None:
+    """Write run telemetry and statistics to output/run-report.json."""
+    file_path = OUTPUT_DIR / "run-report.json"
+    file_path.write_text(
+        json.dumps(report_data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"[REPORT] Run report written to {file_path}")
