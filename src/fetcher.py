@@ -6,11 +6,10 @@ import requests
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Identify the scraper politely with a repo contact link
 HEADERS = {
-    "User-Agent": "FlyRankInternship-A9/1.0 (+https://github.com/your-username/scraper)"
+    "User-Agent": "FlyRankInternship-A9/1.0 (+https://github.com/NewDeveloper888/scraper)"
 }
-TIMEOUT = 5  # Give up after 5 seconds instead of hanging
+TIMEOUT = 5
 
 
 def get_cache_path(url: str, custom_name: str | None = None) -> Path:
@@ -24,41 +23,58 @@ def get_cache_path(url: str, custom_name: str | None = None) -> Path:
 def fetch_page(
     url: str, custom_cache_name: str | None = None, delay: float = 0.5
 ) -> tuple[str, bool]:
-    """
-    Fetch an HTML page safely:
-    - Return cached copy if present.
-    - Delay requests to avoid hammering the host.
-    - Validate response status code (only 200 is acceptable).
-    - Save new HTML to disk for future runs.
-    """
+    """Fetch an HTML page safely with caching, politeness, and single retry on 5xx/Timeout."""
     cache_file = get_cache_path(url, custom_cache_name)
 
-    # 1. Read from local cache if we already downloaded it
     if cache_file.exists():
         html_content = cache_file.read_text(encoding="utf-8")
         size_kb = len(html_content.encode("utf-8")) / 1024
         print(f"[CACHE HIT] {url} -> Size: {size_kb:.2f} KB")
         return html_content, True
 
-    # 2. Be polite: pause before hitting the live server
     if delay > 0:
         time.sleep(delay)
 
-    # 3. Perform network request safely
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    # Attempt up to 2 times for 5xx errors or timeouts
+    for attempt in range(1, 3):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
 
-        # Only status code 200 is treated as valid HTML
-        if response.status_code != 200:
+            # Success
+            if response.status_code == 200:
+                html_content = response.text
+                cache_file.write_text(html_content, encoding="utf-8")
+                size_kb = len(html_content.encode("utf-8")) / 1024
+                print(f"[FETCH] {url} -> Size: {size_kb:.2f} KB")
+                return html_content, False
+
+            # Do not retry on client errors like 404 or 403
+            if response.status_code in (404, 403):
+                print(
+                    f"[FAILED - NO RETRY] {url} -> Status Code: {response.status_code}"
+                )
+                return "", False
+
+            # Retry once on 5xx server errors
+            if response.status_code >= 500 and attempt == 1:
+                print(
+                    f"[SERVER ERROR {response.status_code}] Retrying {url} in 1s..."
+                )
+                time.sleep(1.0)
+                continue
+
             print(f"[FAILED] {url} -> Status Code: {response.status_code}")
             return "", False
 
-        html_content = response.text
-        cache_file.write_text(html_content, encoding="utf-8")
-        size_kb = len(html_content.encode("utf-8")) / 1024
-        print(f"[FETCH] {url} -> Size: {size_kb:.2f} KB")
-        return html_content, False
+        except (requests.Timeout, requests.ConnectionError) as e:
+            if attempt == 1:
+                print(f"[TIMEOUT/ERROR] Retrying {url} in 1s... ({e})")
+                time.sleep(1.0)
+                continue
+            print(f"[ERROR] Failed after retry {url}: {e}")
+            return "", False
+        except requests.RequestException as e:
+            print(f"[ERROR] Request failed for {url}: {e}")
+            return "", False
 
-    except requests.RequestException as e:
-        print(f"[ERROR] Failed to fetch {url}: {e}")
-        return "", False
+    return "", False

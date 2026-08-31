@@ -1,14 +1,12 @@
 from datetime import datetime, timezone
-import json
+from pydantic import ValidationError
 from fetcher import fetch_page
-from models import RawBookRecord
+from models import NormalizedBookRecord, RawBookRecord
 from parser import extract_book_details, extract_book_links, extract_next_page_url
+from storage import save_json_records
 
 
 def discover_books(start_url: str, max_pages: int = 3) -> list[tuple[str, str]]:
-    """
-    Crawl through catalogue pages and return a list of tuples: (book_url, source_page_url).
-    """
     current_url = start_url
     pages_crawled = 0
     discovered: list[tuple[str, str]] = []
@@ -30,7 +28,6 @@ def discover_books(start_url: str, max_pages: int = 3) -> list[tuple[str, str]]:
         else:
             current_url = None
 
-    # Deduplicate by book URL
     seen_urls = set()
     unique_items = []
     for url, src in discovered:
@@ -43,33 +40,40 @@ def discover_books(start_url: str, max_pages: int = 3) -> list[tuple[str, str]]:
 
 def main():
     start_url = "https://books.toscrape.com/catalogue/page-1.html"
-    print("Stage 3: Extracting book details...")
+    print("Stage 4: Normalizing, validating, and storing records...")
 
     book_entries = discover_books(start_url, max_pages=3)
-    raw_records: list[RawBookRecord] = []
+
+    valid_records: list[NormalizedBookRecord] = []
+    error_records: list[dict] = []
 
     for book_url, source_page in book_entries:
-        # Fetch individual book detail page (cached automatically by URL hash)
         html_content, _ = fetch_page(book_url)
         if not html_content:
+            error_records.append(
+                {"url": book_url, "reason": "Failed to fetch HTML"}
+            )
             continue
 
         now_iso = datetime.now(timezone.utc).isoformat()
-        raw_dict = extract_book_details(
-            html_content=html_content,
-            product_url=book_url,
-            source_page=source_page,
-            fetched_at=now_iso,
-        )
 
-        record = RawBookRecord(**raw_dict)
-        raw_records.append(record)
+        try:
+            raw_dict = extract_book_details(
+                html_content=html_content,
+                product_url=book_url,
+                source_page=source_page,
+                fetched_at=now_iso,
+            )
+            raw_record = RawBookRecord(**raw_dict)
+            normalized = NormalizedBookRecord.from_raw(raw_record)
+            valid_records.append(normalized)
+        except (ValueError, ValidationError) as e:
+            error_records.append({"url": book_url, "reason": str(e)})
 
-    # Checkpoint output
-    print(f"\ndetail_pages={len(raw_records)}")
-    if raw_records:
-        print("\n--- Sample Raw Record ---")
-        print(json.dumps(raw_records[0].model_dump(), indent=2))
+    # Save to output/books.json and output/errors.json
+    save_json_records("books.json", valid_records)
+    if error_records:
+        save_json_records("errors.json", error_records)
 
 
 if __name__ == "__main__":
